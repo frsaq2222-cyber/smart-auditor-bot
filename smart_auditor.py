@@ -1,6 +1,8 @@
 import asyncio
 import aiohttp
+from aiohttp import web
 import html
+import os
 from web3 import AsyncWeb3
 from web3.providers import AsyncHTTPProvider
 
@@ -60,7 +62,7 @@ async def analyze_code(code, contract_name, address):
         return report
     return None
 
-async def main():
+async def bot_logic():
     w3 = AsyncWeb3(AsyncHTTPProvider(BNB_RPC_URL))
     try:
         from web3.middleware import ExtraDataToPOAMiddleware
@@ -69,7 +71,7 @@ async def main():
         from web3.middleware import async_geth_poa_middleware
         w3.middleware_onion.inject(async_geth_poa_middleware, layer=0)
     
-    print("📡 بوت الفرز الأمني (Smart Auditor) يعمل الآن ويراقب الشبكة عبر Sourcify...")
+    print("📡 بوت الفرز الأمني يعمل الآن ويراقب الشبكة عبر Sourcify...")
     last_block = await w3.eth.block_number
 
     async with aiohttp.ClientSession() as session:
@@ -99,6 +101,24 @@ async def main():
             except Exception as e:
                 print(f"⚠️ خطأ في الشبكة: {e}")
                 await asyncio.sleep(3)
+
+async def web_server():
+    async def handle(request):
+        return web.Response(text="Bot is running perfectly!")
+    app = web.Application()
+    app.router.add_get('/', handle)
+    port = int(os.environ.get("PORT", 8080))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"🌐 Web server started on port {port}")
+
+async def main():
+    await asyncio.gather(
+        bot_logic(),
+        web_server()
+    )
 
 if __name__ == "__main__":
     try:
