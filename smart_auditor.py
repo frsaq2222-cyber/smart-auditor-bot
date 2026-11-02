@@ -21,6 +21,7 @@ async def send_telegram(message):
         print(f"⚠️ خطأ في إرسال التليجرام: {e}")
 
 async def fetch_source_code(session, address):
+    # استخدام Sourcify (مجاني وبدون مفاتيح API)
     url = f"https://sourcify.dev/server/files/any/56/{address}"
     try:
         async with session.get(url, timeout=10) as response:
@@ -64,6 +65,7 @@ async def analyze_code(code, contract_name, address):
 
 async def bot_logic():
     w3 = AsyncWeb3(AsyncHTTPProvider(BNB_RPC_URL))
+    # دعم شبكة BNB (PoA Middleware)
     try:
         from web3.middleware import ExtraDataToPOAMiddleware
         w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
@@ -72,6 +74,10 @@ async def bot_logic():
         w3.middleware_onion.inject(async_geth_poa_middleware, layer=0)
     
     print("📡 بوت الفرز الأمني يعمل الآن ويراقب الشبكة عبر Sourcify...")
+    
+    # 🔥 هذا هو السطر الجديد الذي يرسل رسالة الترحيب 🔥
+    await send_telegram("✅ بوت الثغرات (Smart Auditor) بدأ العمل الآن ويراقب العقود الجديدة...")
+    
     last_block = await w3.eth.block_number
 
     async with aiohttp.ClientSession() as session:
@@ -102,6 +108,7 @@ async def bot_logic():
                 print(f"⚠️ خطأ في الشبكة: {e}")
                 await asyncio.sleep(3)
 
+# سيرفر الويب الوهمي (ضروري جداً لمنصة Render لكي لا يغلق البوت)
 async def web_server():
     async def handle(request):
         return web.Response(text="Bot is running perfectly!")
@@ -115,6 +122,7 @@ async def web_server():
     print(f"🌐 Web server started on port {port}")
 
 async def main():
+    # تشغيل البوت والسيرفر معاً في نفس الوقت
     await asyncio.gather(
         bot_logic(),
         web_server()
