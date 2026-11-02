@@ -5,7 +5,11 @@ import os
 from web3 import AsyncWeb3
 from web3.providers import AsyncHTTPProvider
 
-# رابط NodeReal الخاص بك
+# ⚙️ الإعدادات الأساسية (بياناتك)
+TELEGRAM_TOKEN = "9275386025:AAGj8SrkdTDbWv-7aHq0ejg8NCe7zqdbVu4"
+TELEGRAM_CHAT_ID = "1822828787"
+
+# 🚀 رابط NodeReal الخاص بك
 RPC_URL = "https://bsc-mainnet.nodereal.io/v1/f0a6f89f70fc4d9eafc072f4f879bfdd"
 
 VENUS_COMPTROLLER = "0xfD36E2c2a6789Db23113685031d7F16329158384"
@@ -14,11 +18,32 @@ VTOKEN_USDT = "0xfD5840Cd36d94D7229439859C0112a4185BC0255"
 COMPTROLLER_ABI = [{"constant": True, "inputs": [{"internalType": "address", "name": "account", "type": "address"}], "name": "getAccountLiquidity", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}, {"internalType": "uint256", "name": "", "type": "uint256"}, {"internalType": "uint256", "name": "", "type": "uint256"}], "payable": False, "stateMutability": "view", "type": "function"}]
 VTOKEN_ABI = [{"anonymous": False, "inputs": [{"indexed": False, "internalType": "address", "name": "borrower", "type": "address"}, {"indexed": False, "internalType": "uint256", "name": "borrowAmount", "type": "uint256"}, {"indexed": False, "internalType": "uint256", "name": "accountBorrows", "type": "uint256"}, {"indexed": False, "internalType": "uint256", "name": "totalBorrows", "type": "uint256"}], "name": "Borrow", "type": "event"}]
 
+async def send_telegram(message):
+    """دالة إرسال الإشعارات إلى تليجرام"""
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML", "disable_web_page_preview": True}
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.post(url, json=payload, timeout=10)
+    except Exception as e:
+        print(f"⚠️ خطأ في إرسال التليجرام: {e}")
+
 async def check_liquidity(w3, comptroller, wallet_address):
+    """فحص المحفظة وإرسال إشعار إذا كانت معرضة للتصفية"""
     try:
         result = await comptroller.functions.getAccountLiquidity(wallet_address).call()
-        if result[0] == 0 and result[2] > 0:
-            print(f"🚨🚨 [هدف ثمين] محفظة معرضة للتصفية: {wallet_address} | العجز: {result[2]}")
+        error_code = result[0]
+        shortfall = result[2]
+        
+        if error_code == 0 and shortfall > 0:
+            msg = (
+                f"🚨 <b>[هدف ثمين للتصفية!]</b>\n\n"
+                f"📍 <b>المحفظة:</b> <code>{wallet_address}</code>\n"
+                f"📉 <b>العجز (Shortfall):</b> {shortfall}\n\n"
+                f"🔗 <a href='https://bscscan.com/address/{wallet_address}'>افتح المحفظة في BscScan</a>"
+            )
+            print(f"🚨🚨 [هدف ثمين] محفظة معرضة للتصفية: {wallet_address} | العجز: {shortfall}")
+            await send_telegram(msg)
     except Exception:
         pass
 
@@ -38,7 +63,9 @@ async def bot_logic():
 
     last_block = await w3.eth.block_number
     print(f"✅ البوت يعمل الآن! نبدأ المراقبة من البلوك: {last_block}")
-    print("⏳ ننتظر عمليات الاقتراض الجديدة...")
+    
+    # إرسال رسالة بدء التشغيل إلى تليجرام (اختياري، لتعلم أن البوت شغال)
+    await send_telegram("✅ بوت التصفية (Venus) بدأ العمل الآن ويراقب الشبكة...")
 
     while True:
         try:
