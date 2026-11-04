@@ -1,13 +1,13 @@
 import asyncio
 import os
 import aiohttp
+from aiohttp import web
 from web3 import AsyncWeb3
 from web3.providers import AsyncHTTPProvider
 
 # ==========================================
 # ⚙️ 1. الإعدادات الأساسية (قراءة آمنة)
 # ==========================================
-# قراءة رابط الشبكة من Environment Variables
 RPC_URL = os.getenv("BNB_RPC_URL", "https://bsc-dataseed.binance.org/")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -23,7 +23,7 @@ VTOKEN_ABI = [{"anonymous": False, "inputs": [{"indexed": False, "internalType":
 # ==========================================
 async def send_telegram(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        return # تجاهل الإرسال إذا لم تكن الإعدادات موجودة
+        return
         
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
@@ -39,30 +39,47 @@ async def send_telegram(message):
 async def check_liquidity(w3, comptroller, wallet_address):
     try:
         result = await comptroller.functions.getAccountLiquidity(wallet_address).call()
-        # إذا كان الخطأ 0 (لا يوجد خطأ) والعجز (shortfall) أكبر من 0
         if result[0] == 0 and result[2] > 0:
-            shortfall = w3.from_wei(result[2], 'ether') # تحويل العجز لرقم مقروء
+            shortfall = w3.from_wei(result[2], 'ether')
             msg = f"🚨🚨 <b>[هدف ثمين]</b> محفظة معرضة للتصفية!\n\n"
             msg += f"👤 <b>المحفظة:</b> <code>{wallet_address}</code>\n"
             msg += f"📉 <b>العجز:</b> {shortfall:.2f} USD\n"
             msg += f"🔗 <a href='https://bscscan.com/address/{wallet_address}'>عرض في BscScan</a>"
             
             print(f"🚨 [هدف] محفظة: {wallet_address} | العجز: {shortfall}")
-            await send_telegram(msg) # إرسال إشعار فوري
+            await send_telegram(msg)
     except Exception:
         pass
 
 # ==========================================
-# 🚀 4. الحلقة الرئيسية للبوت
+# 🌐 4. سيرفر ويب مصغر لإرضاء منصة Render
 # ==========================================
-async def main():
+async def web_server():
+    async def handle(request):
+        return web.Response(text="Venus Liquidation Bot is running perfectly!")
+
+    app = web.Application()
+    app.router.add_get('/', handle)
+    
+    # Render يحدد المنفذ تلقائياً عبر المتغير PORT
+    port = int(os.environ.get("PORT", 8080))
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"🌐 Web server started on port {port}")
+
+# ==========================================
+# 🚀 5. الحلقة الرئيسية للبوت
+# ==========================================
+async def bot_logic():
     print("📡 جاري الاتصال بشبكة BNB...")
     if not TELEGRAM_TOKEN:
         print("⚠️ تحذير: توكن التليجرام غير موجود، لن يتم إرسال إشعارات.")
         
     w3 = AsyncWeb3(AsyncHTTPProvider(RPC_URL))
     
-    # إضافة دعم شبكة BNB (POA Middleware)
     try:
         from web3.middleware import ExtraDataToPOAMiddleware
         w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
@@ -73,7 +90,6 @@ async def main():
     comptroller = w3.eth.contract(address=w3.to_checksum_address(VENUS_COMPTROLLER), abi=COMPTROLLER_ABI)
     vtoken_usdt = w3.eth.contract(address=w3.to_checksum_address(VTOKEN_USDT), abi=VTOKEN_ABI)
 
-    # جلب رقم البلوك الحالي لنبدأ منه
     last_block = await w3.eth.block_number
     print(f"✅ البوت يعمل الآن! نبدأ المراقبة من البلوك: {last_block}")
     print("⏳ ننتظر عمليات الاقتراض الجديدة... (اضغط Ctrl+C للإيقاف)")
@@ -84,13 +100,11 @@ async def main():
         try:
             current_block = await w3.eth.block_number
             
-            # إذا ظهر بلوك جديد
             if current_block > last_block:
                 start_block = last_block + 1
                 end_block = current_block
                 
                 try:
-                    # جلب أحداث الاقتراض في البلوكات الجديدة
                     events = await vtoken_usdt.events.Borrow.get_logs(from_block=start_block, to_block=end_block)
                     
                     if events:
@@ -99,11 +113,10 @@ async def main():
                             borrower = event['args']['borrower']
                             await check_liquidity(w3, comptroller, borrower)
                 except Exception:
-                    pass # تجاهل الأخطاء في بلوك معين ونكمل
+                    pass
                 
                 last_block = current_block
             
-            # انتظار ثانية واحدة قبل فحص البلوك التالي (توفيراً لاستهلاك الـ API)
             await asyncio.sleep(1)
             
         except KeyboardInterrupt:
@@ -112,6 +125,15 @@ async def main():
         except Exception as e:
             print(f"⚠️ خطأ في الشبكة: {e}")
             await asyncio.sleep(3)
+
+# ==========================================
+# ▶️ 6. نقطة البداية (تشغيل البوت والسيرفر معاً)
+# ==========================================
+async def main():
+    await asyncio.gather(
+        bot_logic(),
+        web_server()
+    )
 
 if __name__ == "__main__":
     try:
