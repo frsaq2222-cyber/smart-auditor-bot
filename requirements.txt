@@ -1,4 +1,3 @@
 aiohttp
 web3
-beautifulsoup4
-lxml
+requests
